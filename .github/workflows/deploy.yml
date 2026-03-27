@@ -1,0 +1,70 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    env:
+      GCP_PROJECT: naper-ai-producao
+      GCP_REGION: us-central1
+      AR_REPO: paperclip
+      IMAGE_NAME: paperclip
+      CLOUD_RUN_SERVICE: paperclip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1017255890451/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: github-actions@naper-ai-producao.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            us-central1-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            us-central1-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE }} \
+            --image us-central1-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --project ${{ env.GCP_PROJECT }} \
+            --quiet
+
+      - name: Show deployment URL
+        run: |
+          echo "Deployed to: $(gcloud run services describe ${{ env.CLOUD_RUN_SERVICE }} --region=${{ env.GCP_REGION }} --format='value(status.url)')"
+          echo "Revision: $(gcloud run services describe ${{ env.CLOUD_RUN_SERVICE }} --region=${{ env.GCP_REGION }} --format='value(status.latestReadyRevisionName)')"
