@@ -62,6 +62,14 @@ jobs:
             --image us-central1-docker.pkg.dev/${{ env.GCP_PROJECT }}/${{ env.AR_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --region ${{ env.GCP_REGION }} \
             --project ${{ env.GCP_PROJECT }} \
+            --memory=2Gi \
+            --cpu=2 \
+            --cpu-boost \
+            --no-cpu-throttling \
+            --concurrency=10 \
+            --timeout=900 \
+            --min-instances=1 \
+            --max-instances=3 \
             --quiet
 
       - name: Show deployment URL
